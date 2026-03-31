@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data files (too large for git)
+data/raw/*.csv
+data/raw/*.parquet
+data/processed/*.csv
+data/processed/*.parquet
+
+# IDE
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Output artifacts
+outputs/figures/*.png
+outputs/figures/*.pdf
+outputs/figures/*.pgf
+outputs/tables/*.tex
+outputs/tables/*.csv
