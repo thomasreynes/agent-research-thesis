@@ -1,0 +1,32 @@
+{
+  "mcp": {
+    "servers": {
+      "memory": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-memory"],
+        "env": {
+          "MEMORY_FILE_PATH": "${workspaceFolder}/context/memory.jsonl"
+        },
+        "description": "Persistent knowledge graph: decisions, findings, naming conventions, experiment log"
+      },
+      "jupyter": {
+        "command": "uvx",
+        "args": ["mcp-server-jupyter"],
+        "description": "Execute Python/PyTorch code, validate results, render plots"
+      },
+      "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "${workspaceFolder}"],
+        "description": "Read/write project files, scan for auditing"
+      },
+      "duckdb": {
+        "command": "uvx",
+        "args": ["mcp-server-duckdb", "--db-path", "${workspaceFolder}/data/research.duckdb"],
+        "description": "SQL on panel data: CRSP returns, characteristics, regimes"
+      }
+    }
+  },
+  "github.copilot.chat.codeGeneration.instructions": [
+    { "file": ".github/copilot-instructions.md" }
+  ]
+}

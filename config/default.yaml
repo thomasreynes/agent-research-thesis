@@ -1,0 +1,93 @@
+# AIPM Linear Attention — Thesis Configuration
+# Author: Thomas Reynes
+
+project:
+  name: "aipm-linear-attention-thesis"
+  seed: 42
+  device: "cuda"
+
+data:
+  raw_dir: "data/raw/"
+  processed_dir: "data/processed/"
+  characteristics:
+    - "log_mcap"
+    - "bm"
+    - "mom_12_2"
+    - "prof"
+    - "inv"
+    - "turnover"
+    - "vol"
+    - "ep"
+  min_price: 1.0
+  exclude_financials: true
+  exclude_utilities: false
+  split:
+    train_end: "2005-12-31"
+    val_end: "2010-12-31"
+
+regimes:
+  nber:
+    fred_series: "USREC"
+  vix:
+    ticker: "^VIX"
+    threshold: 20.0
+
+model:
+  type: "linear_attention"
+  D: 8
+  H: 4
+  d_model: 32
+  d_ff: 64
+  num_layers: 2
+  dropout: 0.1
+
+training:
+  optimizer: "adam"
+  lr: 0.001
+  lr_scheduler: "cosine"
+  warmup_epochs: 5
+  max_epochs: 200
+  early_stopping_patience: 20
+  batch_size: 1
+  weight_decay: 0.0001
+
+evaluation:
+  benchmarks:
+    - "ff3"
+    - "ff5"
+    - "own_asset_linear"
+  metrics:
+    - "oos_r2"
+    - "sharpe_ratio"
+    - "mape"
+
+hypothesis_tests:
+  h1:
+    pair_sample_size: 50000
+    style_dims: ["bm", "mom_12_2", "prof", "inv"]
+    cluster_se: ["time", "pair"]
+  h2:
+    size_median_split: true
+    liquidity_proxy: "turnover"
+    cluster_se: ["time"]
+  h3:
+    n_placebo_permutations: 1000
+    placebo_types:
+      - "characteristic_shuffle"
+      - "attention_permutation"
+      - "time_shift_6m"
+    stress_tests:
+      - "crisis_subsample"
+      - "exclude_mega_caps"
+      - "alt_characteristics"
+
+visualization:
+  dpi: 300
+  font_backend: "pgf"
+  palette: "colorblind"
+  figure_dir: "outputs/figures/"
+  table_dir: "outputs/tables/"
+
+wandb:
+  project: "aipm-thesis-reynes"
+  entity: "thomasreynes"
