@@ -1,0 +1,25 @@
+# Training configuration
+data:
+  processed_path: "data/processed/panel.parquet"
+  characteristics: ["size", "bm", "mom", "prof", "inv", "vol"]
+  return_col: "ret_excess"
+  date_col: "date"
+  entity_col: "permno"
+
+model:
+  embed_dim: 32
+  num_heads: 1
+  num_layers: 1
+  dropout: 0.0
+
+training:
+  epochs: 100
+  batch_size: 256
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  early_stopping_patience: 10
+  seed: 42
+
+output:
+  model_dir: "outputs/models"
+  checkpoint: "outputs/models/linear_attn.pt"
