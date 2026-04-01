@@ -1,0 +1,12 @@
+# Decomposition configuration
+model:
+  checkpoint: "outputs/models/linear_attn.pt"
+
+data:
+  processed_path: "data/processed/panel.parquet"
+  characteristics: ["size", "bm", "mom", "prof", "inv", "vol"]
+  date_col: "date"
+  entity_col: "permno"
+
+output:
+  decomposition_dir: "outputs/decomposition"

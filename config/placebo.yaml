@@ -1,0 +1,16 @@
+# Placebo test configuration
+data:
+  processed_path: "data/processed/panel.parquet"
+  characteristics: ["size", "bm", "mom", "prof", "inv", "vol"]
+  date_col: "date"
+  entity_col: "permno"
+
+model:
+  checkpoint: "outputs/models/linear_attn.pt"
+
+placebo:
+  n_iterations: 1000
+  seed: 42
+
+output:
+  dir: "outputs/placebo"
