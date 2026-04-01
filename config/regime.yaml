@@ -1,0 +1,16 @@
+# Regime analysis configuration
+decomposition:
+  dir: "outputs/decomposition"
+
+regimes:
+  nber:
+    recessions_csv: "data/raw/nber_recessions.csv"
+  vix:
+    threshold: 20.0
+    vix_path: "data/raw/vix_daily.csv"
+
+benchmark_factors:
+  path: "data/raw/ff5_factors.csv"
+
+output:
+  dir: "outputs/regimes"
