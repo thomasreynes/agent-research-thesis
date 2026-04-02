@@ -8,3 +8,4 @@ pyyaml>=6.0
 scikit-learn>=1.2
 statsmodels>=0.14
 tqdm>=4.65
+pytest>=7.0
