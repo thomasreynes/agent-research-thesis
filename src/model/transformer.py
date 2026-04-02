@@ -187,7 +187,7 @@ class LinearAttentionTransformer(nn.Module):
     def get_combined_weight_matrix(self) -> torch.Tensor:
         """Return the effective combined weight matrix W_eff = W_Q^T W_K.
 
-        This is the single D_in × D_in matrix such that:
+        This is the single d_in × d_in matrix such that:
 
             A_t = X_t W_eff X_t^T      (Kelly et al. 2025, single-W form)
 
@@ -211,3 +211,11 @@ class LinearAttentionTransformer(nn.Module):
             Both tensors are detached from the computation graph.
         """
         return self.W_Q.weight.detach(), self.W_K.weight.detach()
+
+    def get_attention_weights(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Alias for :meth:`get_projection_weights` (backward compatibility).
+
+        Returns:
+            Tuple ``(W_Q, W_K)`` each of shape ``(embed_dim, d_in)``.
+        """
+        return self.get_projection_weights()

@@ -260,7 +260,7 @@ class TestSDFModel:
         X = torch.randn(N, D)
         attn_feats = torch.randn(N, D)
         w = sdf(X, attn_feats)
-        assert abs(w.mean().item()) < 1e-5, f"Weights mean should be 0, got {w.mean().item():.2e}"
+        assert abs(w.mean().item()) < 1e-5, f"Weights mean should be 0, got {w.mean().item():.1e}"
 
     def test_pricing_error_scalar_outputs(self) -> None:
         """pricing_error() should return two scalars."""
