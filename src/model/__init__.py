@@ -6,10 +6,12 @@ and SDF weight generation.
 
 from src.model.attention import LinearAttention, decompose_attention, compute_sdf_weights
 from src.model.sdf import SDFModel
+from src.model.transformer import LinearTransformerModel
 
 __all__ = [
     "LinearAttention",
     "decompose_attention",
     "compute_sdf_weights",
     "SDFModel",
+    "LinearTransformerModel",
 ]

@@ -6,11 +6,14 @@ Usage::
 
 For each month t in the sample this script computes the linear attention
 matrix and decomposes it into symmetric and antisymmetric components
-following Kelly, Malamud, Ramirez & Zhou (NBER WP 33351, 2025):
+following Kelly, Kuznetsov, Malamud & Xu (NBER WP 33351, 2025):
 
-    A_t   = Q X_t^T X_t K^T      (Kelly et al. 2025, linear case)
-    A^s_t = (A_t + A_t^T) / 2    (symmetric  — H1: factor structure)
-    A^a_t = (A_t - A_t^T) / 2    (antisymmetric — H2: mispricing signals)
+    A_t   = X_t W X_t^T                  (Kelly et al. 2025, exact linear case)
+    A^s_t = (A_t + A_t^T) / 2            (symmetric  — H1: factor structure)
+    A^a_t = (A_t - A_t^T) / 2            (antisymmetric — H2: mispricing signals)
+
+The weight matrix W is loaded from ``outputs/models/W.npy`` (saved by
+``train.py`` after training).
 
 Decomposed matrices are saved as ``.npy`` files under
 ``outputs/decomposition/``, together with summary statistics.
@@ -34,27 +37,25 @@ logger = logging.getLogger(__name__)
 # Decomposition helpers
 # ---------------------------------------------------------------------------
 
-def compute_attention(
-    X: np.ndarray, W_Q: np.ndarray, W_K: np.ndarray
-) -> np.ndarray:
+def compute_attention(X: np.ndarray, W: np.ndarray) -> np.ndarray:
     """Compute the linear attention matrix for one cross-section.
 
-    Implements the linear attention (no softmax) from Kelly et al. (2025):
+    Implements the *exact* bilinear attention from Kelly et al. (2025):
 
-        A_t = (X_t W_Q^T)(X_t W_K^T)^T = Q_t K_t^T    (Kelly et al. 2025)
+        A_t = X_t W X_t^T                    (Kelly et al. 2025, linear case)
+
+    where W ∈ R^{D × D} is the learned interaction matrix saved by
+    ``train.py``.
 
     Args:
         X: Characteristics matrix of shape ``(N_t, D)``.
-        W_Q: Query weight matrix of shape ``(embed_dim, D)``.
-        W_K: Key weight matrix of shape ``(embed_dim, D)``.
+        W: Interaction weight matrix of shape ``(D, D)``.
 
     Returns:
         Attention matrix ``A_t`` of shape ``(N_t, N_t)``.
     """
-    # Q_t = X_t W_Q^T,  K_t = X_t W_K^T — Kelly et al. 2025, linear case
-    Q_t = X @ W_Q.T  # (N_t, embed_dim)
-    K_t = X @ W_K.T  # (N_t, embed_dim)
-    A_t: np.ndarray = Q_t @ K_t.T  # Eq. (linear case) Kelly et al. 2025
+    # A_t = X_t W X_t^T  — Kelly et al. 2025, exact linear case
+    A_t: np.ndarray = X @ W @ X.T  # (N_t, N_t)
     return A_t
 
 
@@ -129,9 +130,10 @@ def decompose(config: dict[str, Any]) -> None:
     checkpoint_path = Path(config["model"]["checkpoint"])
     models_dir = checkpoint_path.parent
 
-    W_Q = np.load(models_dir / "W_Q.npy")
-    W_K = np.load(models_dir / "W_K.npy")
-    logger.info("Loaded W_Q %s and W_K %s", W_Q.shape, W_K.shape)
+    # Load the effective weight matrix W saved by train.py
+    # W = X_t^T W X_t form — Kelly et al. (2025) exact linear case
+    W = np.load(models_dir / "W.npy")
+    logger.info("Loaded W %s", W.shape)
 
     df = load_data(config)
     date_col: str = config["data"]["date_col"]
@@ -145,8 +147,8 @@ def decompose(config: dict[str, Any]) -> None:
     for date, grp in df.groupby(date_col, sort=True):
         X = grp[char_cols].values.astype(np.float32)  # (N_t, D)
 
-        # A_t = Q_t K_t^T  — Kelly et al. 2025, linear case
-        A_t = compute_attention(X, W_Q, W_K)
+        # A_t = X_t W X_t^T  — Kelly et al. 2025, exact linear case
+        A_t = compute_attention(X, W)
 
         # Symmetric / antisymmetric decomposition — Kelly et al. 2025
         A_sym, A_anti = decompose_attention(A_t)
