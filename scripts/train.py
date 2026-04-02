@@ -13,11 +13,14 @@ Ramirez & Zhou (NBER WP 33351, 2025):
 where W_Q, W_K ∈ R^{embed_dim×D} are learned weight matrices and
 X_t ∈ R^{N_t×D} is the cross-section of firm characteristics at month t.
 No softmax is applied (linear attention).
+
+The authoritative model class lives in :mod:`src.model.transformer`.
 """
 
 import argparse
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +30,12 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
-from utils import load_config, load_data, set_seed, setup_logging
+# Ensure the repo root is on sys.path so that `src.*` imports resolve whether
+# this script is executed from the repo root or from within scripts/.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from src.model.transformer import LinearAttentionTransformer  # noqa: E402
+from utils import load_config, load_data, set_seed, setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -83,77 +91,6 @@ def collate_fn(
     X, y = batch[0]
     return X, y
 
-
-# ---------------------------------------------------------------------------
-# Model
-# ---------------------------------------------------------------------------
-
-class LinearAttentionTransformer(nn.Module):
-    """Single-head, single-layer linear attention transformer.
-
-    Implements the model from Kelly et al. (2025, NBER WP 33351).
-    The attention matrix is computed *without* softmax (linear attention):
-
-        A_t = X_t W_Q^T W_K X_t^T          (Kelly et al. 2025, linear case)
-
-    The decomposition into symmetric and antisymmetric parts is:
-
-        A^s_t = (A_t + A_t^T) / 2          (symmetric  — factor structure)
-        A^a_t = (A_t - A_t^T) / 2          (antisymmetric — mispricing)
-
-    The value projection and output head follow the standard single-layer
-    transformer architecture.
-
-    Args:
-        d_in: Number of input characteristics (P).
-        embed_dim: Internal embedding dimension (D).
-        dropout: Dropout probability applied after attention (set 0 in paper).
-    """
-
-    def __init__(self, d_in: int, embed_dim: int, dropout: float = 0.0) -> None:
-        super().__init__()
-        # Linear projections for Q, K, V — no bias to keep the model
-        # interpretable (Kelly et al. 2025 prescribe weight-only attention)
-        self.W_Q = nn.Linear(d_in, embed_dim, bias=False)
-        self.W_K = nn.Linear(d_in, embed_dim, bias=False)
-        self.W_V = nn.Linear(d_in, embed_dim, bias=False)
-        self.head = nn.Linear(embed_dim, 1, bias=True)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, X: torch.Tensor) -> torch.Tensor:
-        """Compute predicted excess returns for a cross-section.
-
-        Args:
-            X: Characteristics matrix of shape ``(N_t, d_in)``.
-
-        Returns:
-            Predicted excess returns of shape ``(N_t,)``.
-        """
-        # Q ∈ R^{N_t × D},  K ∈ R^{N_t × D},  V ∈ R^{N_t × D}
-        Q = self.W_Q(X)  # (N_t, D)
-        K = self.W_K(X)  # (N_t, D)
-        V = self.W_V(X)  # (N_t, D)
-
-        # Linear attention: A_t = Q K^T  (Kelly et al. 2025, linear case)
-        # Shape: (N_t, N_t) — no softmax applied
-        A = Q @ K.T  # Eq. (linear case) Kelly et al. 2025
-
-        A = self.dropout(A)
-
-        # Context vectors: Z = A V,  shape (N_t, D)
-        Z = A @ V  # (N_t, D)
-
-        # Output head: predicted returns, shape (N_t,)
-        preds: torch.Tensor = self.head(Z).squeeze(-1)
-        return preds
-
-    def get_attention_weights(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Return the learned Q and K weight matrices.
-
-        Returns:
-            Tuple ``(W_Q, W_K)`` each of shape ``(embed_dim, d_in)``.
-        """
-        return self.W_Q.weight.detach(), self.W_K.weight.detach()
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +219,7 @@ def train(config: dict[str, Any]) -> None:
     # Save Q and K weight matrices separately for decompose.py
     # ------------------------------------------------------------------
     model.load_state_dict(torch.load(checkpoint_path, map_location=device))
-    W_Q, W_K = model.get_attention_weights()
+    W_Q, W_K = model.get_projection_weights()
     np.save(out_dir / "W_Q.npy", W_Q.cpu().numpy())
     np.save(out_dir / "W_K.npy", W_K.cpu().numpy())
     logger.info("Saved W_Q and W_K to %s", out_dir)
