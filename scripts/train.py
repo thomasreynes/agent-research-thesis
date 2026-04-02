@@ -4,20 +4,25 @@ Usage::
 
     python scripts/train.py --config config/train.yaml
 
-The model implements the *linear* attention variant from Kelly, Malamud,
-Ramirez & Zhou (NBER WP 33351, 2025):
+The model implements the *exact* linear attention algorithm from Kelly,
+Kuznetsov, Malamud & Xu (NBER WP 33351, 2025):
 
-    A_t = Q_t K_t^T   where Q_t = X_t W_Q^T,  K_t = X_t W_K^T
-                                          (Kelly et al. 2025, linear case)
+    Step 1 — Bilinear attention:
+        A_t = X_t W X_t^T               (Kelly et al. 2025, linear case)
+        where W ∈ R^{D × D} is the sole learned interaction matrix.
 
-where W_Q, W_K ∈ R^{embed_dim×D} are learned weight matrices and
-X_t ∈ R^{N_t×D} is the cross-section of firm characteristics at month t.
-No softmax is applied (linear attention).
+    Step 2 — Context aggregation:
+        Z_t = A_t X_t                   (attention-weighted characteristics)
+
+    Step 3 — SDF output:
+        g_t = Z_t b                     (b ∈ R^D is the output projection)
+
+No softmax is applied (linear attention).  Set ``model.w_rank`` in the YAML
+config to use the factored parameterisation W = W_Q^T W_K (``w_rank < d_model``).
 """
 
 import argparse
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +33,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
 from utils import load_config, load_data, set_seed, setup_logging
+from src.model import LinearTransformerModel
 
 logger = logging.getLogger(__name__)
 
@@ -85,78 +91,6 @@ def collate_fn(
 
 
 # ---------------------------------------------------------------------------
-# Model
-# ---------------------------------------------------------------------------
-
-class LinearAttentionTransformer(nn.Module):
-    """Single-head, single-layer linear attention transformer.
-
-    Implements the model from Kelly et al. (2025, NBER WP 33351).
-    The attention matrix is computed *without* softmax (linear attention):
-
-        A_t = X_t W_Q^T W_K X_t^T          (Kelly et al. 2025, linear case)
-
-    The decomposition into symmetric and antisymmetric parts is:
-
-        A^s_t = (A_t + A_t^T) / 2          (symmetric  — factor structure)
-        A^a_t = (A_t - A_t^T) / 2          (antisymmetric — mispricing)
-
-    The value projection and output head follow the standard single-layer
-    transformer architecture.
-
-    Args:
-        d_in: Number of input characteristics (P).
-        embed_dim: Internal embedding dimension (D).
-        dropout: Dropout probability applied after attention (set 0 in paper).
-    """
-
-    def __init__(self, d_in: int, embed_dim: int, dropout: float = 0.0) -> None:
-        super().__init__()
-        # Linear projections for Q, K, V — no bias to keep the model
-        # interpretable (Kelly et al. 2025 prescribe weight-only attention)
-        self.W_Q = nn.Linear(d_in, embed_dim, bias=False)
-        self.W_K = nn.Linear(d_in, embed_dim, bias=False)
-        self.W_V = nn.Linear(d_in, embed_dim, bias=False)
-        self.head = nn.Linear(embed_dim, 1, bias=True)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, X: torch.Tensor) -> torch.Tensor:
-        """Compute predicted excess returns for a cross-section.
-
-        Args:
-            X: Characteristics matrix of shape ``(N_t, d_in)``.
-
-        Returns:
-            Predicted excess returns of shape ``(N_t,)``.
-        """
-        # Q ∈ R^{N_t × D},  K ∈ R^{N_t × D},  V ∈ R^{N_t × D}
-        Q = self.W_Q(X)  # (N_t, D)
-        K = self.W_K(X)  # (N_t, D)
-        V = self.W_V(X)  # (N_t, D)
-
-        # Linear attention: A_t = Q K^T  (Kelly et al. 2025, linear case)
-        # Shape: (N_t, N_t) — no softmax applied
-        A = Q @ K.T  # Eq. (linear case) Kelly et al. 2025
-
-        A = self.dropout(A)
-
-        # Context vectors: Z = A V,  shape (N_t, D)
-        Z = A @ V  # (N_t, D)
-
-        # Output head: predicted returns, shape (N_t,)
-        preds: torch.Tensor = self.head(Z).squeeze(-1)
-        return preds
-
-    def get_attention_weights(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Return the learned Q and K weight matrices.
-
-        Returns:
-            Tuple ``(W_Q, W_K)`` each of shape ``(embed_dim, d_in)``.
-        """
-        return self.W_Q.weight.detach(), self.W_K.weight.detach()
-
-
-# ---------------------------------------------------------------------------
 # Training loop
 # ---------------------------------------------------------------------------
 
@@ -166,10 +100,10 @@ def train(config: dict[str, Any]) -> None:
     Steps
     -----
     1. Load panel data and wrap in a :class:`MonthlyPanelDataset`.
-    2. Instantiate :class:`LinearAttentionTransformer`.
+    2. Instantiate :class:`~src.model.LinearTransformerModel`.
     3. Minimise MSE loss on realized excess returns using Adam.
     4. Apply early stopping on validation loss.
-    5. Save model checkpoint and Q, K weight matrices.
+    5. Save model checkpoint and effective weight matrix W for decompose.py.
 
     Args:
         config: Full config dict loaded from ``config/train.yaml``.
@@ -206,12 +140,12 @@ def train(config: dict[str, Any]) -> None:
     )
 
     # ------------------------------------------------------------------
-    # Model
+    # Model — exact Kelly et al. (2025) linear transformer
+    # A_t = X_t W X_t^T  →  Z_t = A_t X_t  →  g_t = Z_t b
     # ------------------------------------------------------------------
     d_in = len(config["data"]["characteristics"])
-    embed_dim: int = config["model"]["embed_dim"]
-    dropout: float = config["model"]["dropout"]
-    model = LinearAttentionTransformer(d_in, embed_dim, dropout).to(device)
+    w_rank = config["model"].get("w_rank", None)  # None = full D×D matrix
+    model = LinearTransformerModel(d_model=d_in, w_rank=w_rank).to(device)
     logger.info("Model: %s", model)
 
     # ------------------------------------------------------------------
@@ -279,13 +213,19 @@ def train(config: dict[str, Any]) -> None:
                 break
 
     # ------------------------------------------------------------------
-    # Save Q and K weight matrices separately for decompose.py
+    # Save effective weight matrix W for decompose.py
+    # W = self.attention.W  (full rank) or W_Q^T W_K (factored form)
     # ------------------------------------------------------------------
-    model.load_state_dict(torch.load(checkpoint_path, map_location=device))
-    W_Q, W_K = model.get_attention_weights()
-    np.save(out_dir / "W_Q.npy", W_Q.cpu().numpy())
-    np.save(out_dir / "W_K.npy", W_K.cpu().numpy())
-    logger.info("Saved W_Q and W_K to %s", out_dir)
+    try:
+        model.load_state_dict(
+            torch.load(checkpoint_path, map_location=device, weights_only=True)
+        )
+    except Exception as exc:
+        logger.error("Failed to reload best checkpoint from %s: %s", checkpoint_path, exc)
+        raise
+    W = model.get_weight_matrix()  # (D, D)
+    np.save(out_dir / "W.npy", W.numpy())
+    logger.info("Saved W (%s) to %s", W.shape, out_dir)
 
 
 # ---------------------------------------------------------------------------
